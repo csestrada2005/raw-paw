@@ -272,7 +272,7 @@ export default function Checkout() {
         total,
         payment_method: paymentMethod,
         payment_status: "pending",
-        status: "pending",
+        status: "new",
         ai_recommendation: recommendation as any,
         order_type: hasSubscription ? "subscription" : "single",
       };
