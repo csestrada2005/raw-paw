@@ -59,52 +59,57 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    if (!order_id) {
+      console.error("Webhook missing order_id - cannot safely match order");
+      return new Response(
+        JSON.stringify({ received: true, warning: "missing order_id" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     if (status === "approved") {
-      // Try to match by order_id (order_number) first, fallback to latest pending
-      let query = supabase
+      const { error } = await supabase
         .from("orders")
         .update({
           payment_status: "paid",
           status: "confirmed",
           updated_at: new Date().toISOString(),
         })
-        .eq("payment_method", "tarjeta")
-        .eq("payment_status", "pending");
-
-      if (order_id) {
-        query = query.eq("order_number", order_id);
-        console.log("Matching webhook to order_number:", order_id);
-      } else {
-        query = query.order("created_at", { ascending: false }).limit(1);
-        console.log("No order_id in webhook, updating latest pending tarjeta order");
-      }
-
-      const { error } = await query;
+        .eq("order_number", order_id)
+        .eq("payment_method", "tarjeta");
 
       if (error) {
         console.error("Error updating order:", error);
       } else {
-        console.log("Order marked as paid via webhook");
+        console.log("Order marked as paid via webhook:", order_id);
+
+        // Activate any pending subscription tied to that order's user
+        const { data: orderRow } = await supabase
+          .from("orders")
+          .select("user_id")
+          .eq("order_number", order_id)
+          .maybeSingle();
+
+        if (orderRow?.user_id) {
+          await supabase
+            .from("subscriptions")
+            .update({ status: "active", updated_at: new Date().toISOString() })
+            .eq("user_id", orderRow.user_id)
+            .eq("status", "pending_payment");
+        }
       }
     } else if (status === "declined" || status === "rejected" || status === "failed") {
-      let query = supabase
+      const { error } = await supabase
         .from("orders")
         .update({
           payment_status: "failed",
           updated_at: new Date().toISOString(),
         })
-        .eq("payment_method", "tarjeta")
-        .eq("payment_status", "pending");
+        .eq("order_number", order_id)
+        .eq("payment_method", "tarjeta");
 
-      if (order_id) {
-        query = query.eq("order_number", order_id);
-      } else {
-        query = query.order("created_at", { ascending: false }).limit(1);
-      }
-
-      const { error } = await query;
       if (error) console.error("Error updating failed order:", error);
-      else console.log("Order marked as failed via webhook");
+      else console.log("Order marked as failed via webhook:", order_id);
     }
 
     return new Response(
