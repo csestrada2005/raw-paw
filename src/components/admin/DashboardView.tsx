@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useMemo, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -48,6 +48,24 @@ const STATUS_COLORS = {
 import { DeliveryCalendar } from "./DeliveryCalendar";
 
 export default function DashboardView() {
+  const queryClient = useQueryClient();
+
+  // Realtime: refetch on changes
+  useEffect(() => {
+    const channel = supabase
+      .channel("admin-dashboard-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
+        queryClient.invalidateQueries({ queryKey: ["admin-all-orders"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "subscriptions" }, () => {
+        queryClient.invalidateQueries({ queryKey: ["admin-all-subscriptions"] });
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
+
   // Fetch all orders
   const { data: orders, isLoading: ordersLoading } = useQuery({
     queryKey: ["admin-all-orders"],
