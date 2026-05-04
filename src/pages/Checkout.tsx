@@ -288,6 +288,46 @@ export default function Checkout() {
       
       if (result.error) throw result.error;
 
+      const insertedOrder: any = (result as any).data;
+
+      // ── Create subscription record (only for authenticated users with subscription items) ──
+      if (isAuthenticated && user?.id && hasSubscription && subscriptionItem?.subscriptionDetails) {
+        try {
+          const sd = subscriptionItem.subscriptionDetails;
+          // Check if user already has an active subscription (no unique constraint exists)
+          const { data: existingActive } = await supabase
+            .from("subscriptions")
+            .select("id")
+            .eq("user_id", user.id)
+            .eq("status", "active")
+            .maybeSingle();
+
+          if (!existingActive) {
+            const freqDays = sd.frequency === "weekly" ? 7 : sd.frequency === "biweekly" ? 14 : 7;
+            const nextDelivery = deliveryDate ? new Date(deliveryDate) : new Date();
+            const nextBilling = new Date(nextDelivery);
+            nextBilling.setMonth(nextBilling.getMonth() + (sd.planType === "annual" ? 12 : 1));
+
+            await supabase.from("subscriptions").insert({
+              user_id: user.id,
+              plan_type: sd.planType,
+              protein_line: sd.proteinLine,
+              presentation: sd.presentation,
+              frequency: sd.frequency,
+              frequency_days: freqDays,
+              weekly_amount_kg: sd.weeklyKg || 0,
+              discount_percent: sd.discountPercent || 0,
+              payment_method: paymentMethod,
+              status: paymentMethod === "tarjeta" ? "pending_payment" : "active",
+              next_delivery_date: nextDelivery.toISOString().split("T")[0],
+              next_billing_date: nextBilling.toISOString().split("T")[0],
+            });
+          }
+        } catch (subErr) {
+          console.error("Error creating subscription record:", subErr);
+        }
+      }
+
       setOrderNumber(newOrderNumber);
 
       // Send order confirmation email
