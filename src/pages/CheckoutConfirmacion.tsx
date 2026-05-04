@@ -77,8 +77,17 @@ export default function CheckoutConfirmacion() {
             .eq("payment_status", "pending")
             .then(({ error }) => {
               if (error) console.error("Error updating payment status:", error);
-              else console.log("Order payment_status updated to paid");
             });
+
+          // Activate any pending subscription for this user
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user?.id) {
+            await supabase
+              .from("subscriptions")
+              .update({ status: "active", updated_at: new Date().toISOString() })
+              .eq("user_id", user.id)
+              .eq("status", "pending_payment");
+          }
         }
 
         localStorage.removeItem("centumpay_sale_token");
